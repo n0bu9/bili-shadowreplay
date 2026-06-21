@@ -60,16 +60,22 @@ FROM debian:trixie-slim AS final
 
 WORKDIR /app
 
-# Install runtime dependencies, SSL certificates and Chinese fonts
-RUN apt-get update && apt-get install -y \
+# Install runtime dependencies, SSL certificates and fonts
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     ca-certificates \
     fonts-wqy-microhei \
+    fonts-noto-color-emoji \
+    fontconfig \
     netbase \
     nscd \
     ffmpeg \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+ADD https://raw.githubusercontent.com/googlefonts/noto-emoji/main/fonts/NotoColorEmoji_WindowsCompatible.ttf /usr/local/share/fonts/noto-emoji/NotoColorEmoji_WindowsCompatible.ttf
+RUN chmod 644 /usr/local/share/fonts/noto-emoji/NotoColorEmoji_WindowsCompatible.ttf \
+    && fc-cache -f
 
 
 RUN touch /etc/netgroup

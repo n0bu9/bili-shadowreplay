@@ -30,6 +30,12 @@ const PLAY_RES_Y: f64 = 720.0;
 const BOTTOM_RESERVED: f64 = 50.0;
 const R2L_TIME: f64 = 8.0;
 const MAX_DELAY: f64 = 6.0;
+#[cfg(target_os = "windows")]
+const DEFAULT_FONT: &str = "微软雅黑";
+#[cfg(not(target_os = "windows"))]
+const DEFAULT_FONT: &str = "sans-serif";
+#[cfg(not(target_os = "windows"))]
+const EMOJI_FONT: &str = "Noto Color Emoji";
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Danmu2AssOptions {
@@ -66,12 +72,12 @@ Timer: 10.0000
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,微软雅黑,{},&H{}FFFFFF,&H{}FFFFFF,&H{}000000,&H{}000000,0,0,0,0,100,100,0,0,1,1,0,2,20,20,2,0
+Style: Default,{},{},&H{}FFFFFF,&H{}FFFFFF,&H{}000000,&H{}000000,0,0,0,0,100,100,0,0,1,1,0,2,20,20,2,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 ",
-        font_size, alpha_hex, alpha_hex, alpha_hex, alpha_hex
+        DEFAULT_FONT, font_size, alpha_hex, alpha_hex, alpha_hex, alpha_hex
     );
 
     let mut normal = normal_danmaku();
@@ -123,11 +129,84 @@ fn format_time(seconds: f64) -> String {
 }
 
 fn escape_text(text: &str) -> String {
-    text.replace('\\', "\\\\")
-        .replace('{', "｛")
-        .replace('}', "｝")
-        .replace('\r', "")
-        .replace('\n', "\\N")
+    let mut escaped = String::new();
+    let mut emoji_run = String::new();
+
+    for ch in text.chars() {
+        if is_emoji_char(ch) {
+            emoji_run.push(ch);
+        } else {
+            flush_emoji_run(&mut escaped, &mut emoji_run);
+            push_escaped_char(&mut escaped, ch);
+        }
+    }
+
+    flush_emoji_run(&mut escaped, &mut emoji_run);
+    escaped
+}
+
+fn push_escaped_char(output: &mut String, ch: char) {
+    match ch {
+        '\\' => output.push_str("\\\\"),
+        '{' => output.push('｛'),
+        '}' => output.push('｝'),
+        '\r' => {}
+        '\n' => output.push_str("\\N"),
+        _ => output.push(ch),
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn flush_emoji_run(output: &mut String, emoji_run: &mut String) {
+    if emoji_run.is_empty() {
+        return;
+    }
+
+    output.push_str(r"{\fn");
+    output.push_str(EMOJI_FONT);
+    output.push('}');
+    for ch in emoji_run.chars() {
+        push_escaped_char(output, ch);
+    }
+    output.push_str(r"{\fn");
+    output.push_str(DEFAULT_FONT);
+    output.push('}');
+    emoji_run.clear();
+}
+
+#[cfg(target_os = "windows")]
+fn flush_emoji_run(output: &mut String, emoji_run: &mut String) {
+    for ch in emoji_run.chars() {
+        push_escaped_char(output, ch);
+    }
+    emoji_run.clear();
+}
+
+fn is_emoji_char(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x00A9
+            | 0x00AE
+            | 0x200D
+            | 0x203C
+            | 0x2049
+            | 0x2122
+            | 0x2139
+            | 0x2194..=0x21AA
+            | 0x231A..=0x23FF
+            | 0x2460..=0x24FF
+            | 0x25A0..=0x25FF
+            | 0x2600..=0x27BF
+            | 0x2934..=0x2935
+            | 0x2B00..=0x2BFF
+            | 0x3030
+            | 0x303D
+            | 0x3297
+            | 0x3299
+            | 0xFE0E..=0xFE0F
+            | 0x1F000..=0x1FAFF
+            | 0xE0020..=0xE007F
+    )
 }
 
 fn normal_danmaku() -> impl FnMut(f64, f64, f64, bool) -> Option<DanmakuPosition> {
@@ -288,6 +367,15 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn test_escape_text_emoji_font_override() {
+        assert_eq!(
+            escape_text("hello🦍world"),
+            format!(r"hello{{\fn{EMOJI_FONT}}}🦍{{\fn{DEFAULT_FONT}}}world")
+        );
+    }
+
+    #[test]
     fn test_danmu2ass_options_default() {
         let opts = Danmu2AssOptions::default();
         assert_eq!(opts.font_size, 36.0);
@@ -353,5 +441,11 @@ mod tests {
             },
         );
         assert!(result.contains(",48,"));
+    }
+
+    #[test]
+    fn test_danmu_to_ass_uses_default_font() {
+        let result = danmu_to_ass(vec![], Danmu2AssOptions::default());
+        assert!(result.contains(&format!("Style: Default,{DEFAULT_FONT},")));
     }
 }
